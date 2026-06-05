@@ -1,2 +1,7 @@
+pip install -r requirements.txt
+ollama serve
+ollama run phi3:mini
+streamlit run app.py
 streamlit
 pdfplumber
+requests

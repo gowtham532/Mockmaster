@@ -1,170 +1,175 @@
 import streamlit as st
 import pdfplumber
+import re
 
 st.set_page_config(page_title="MockMaster", layout="wide")
 
-st.title("📘 MockMaster")
-st.subheader("Upload PDF and Generate Mock Test")
 
-uploaded_file = st.file_uploader(
-    "Upload PDF",
-    type=["pdf"]
-)
-
-if uploaded_file:
-
+# ---------------------------
+# READ PDF
+# ---------------------------
+def read_pdf(uploaded_file):
     text = ""
 
-    # Read PDF
     with pdfplumber.open(uploaded_file) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
-
             if page_text:
                 text += page_text + "\n"
 
-    st.success("PDF uploaded successfully!")
+    return text
 
-    lines = text.split("\n")
+
+# ---------------------------
+# EXTRACT QUESTIONS
+# ---------------------------
+def extract_questions(text):
+
+    pattern = r'(Q\d+\..*?)(?=Q\d+\.|\Z)'
+
+    blocks = re.findall(pattern, text, re.S)
 
     questions = []
-    current_question = None
-    options = []
 
-    # Extract Questions
-    for line in lines:
+    for block in blocks:
 
-        line = line.strip()
+        lines = [x.strip() for x in block.split("\n") if x.strip()]
 
-        if not line:
+        if len(lines) < 5:
             continue
 
-        if line.startswith("Q") and "." in line:
+        question = lines[0]
 
-            if current_question:
-                questions.append({
-                    "question": current_question,
-                    "options": options
-                })
+        options = []
 
-            current_question = line
-            options = []
+        for line in lines[1:]:
 
-        elif (
-            line.startswith("A)")
-            or line.startswith("B)")
-            or line.startswith("C)")
-            or line.startswith("D)")
-        ):
-            options.append(line)
+            if re.match(r'^[A-D]\.', line):
+                options.append(line)
 
-    # Add Last Question
-    if current_question:
-        questions.append({
-            "question": current_question,
-            "options": options
-        })
+        if len(options) == 4:
 
-    st.success(f"Questions Found: {len(questions)}")
+            questions.append({
+                "question": question,
+                "options": options
+            })
 
-    # ANSWER KEY
-    correct_answers = {
-        0: "C) 29",
-        1: "B) 12",
-        2: "C) 36",
-        3: "B) 135",
-        4: "B) 1",
-        5: "C) 2",
-        6: "D) 22",
-        7: "A) 5",
-        8: "C) 24",
-        9: "A) 81",
-        10: "A) School",
-        11: "A) Cut",
-        12: "B) Den",
-        13: "B) Glove",
-        14: "A) Hunger",
-        15: "B) Cat",
-        16: "C) Cold",
-        17: "A) Bird",
-        18: "B) Hear",
-        19: "C) Air",
-        20: "B) Babur",
-        21: "C) Gandhi",
-        22: "B) 1757",
-        23: "B) Shah Jahan",
-        24: "C) 1942",
-        25: "C) Chandragupta Maurya",
-        26: "B) Agra",
-        27: "B) Chanakya",
-        28: "A) 1526",
-        29: "B) Humayun",
-        30: "D) Both A and C",
-        31: "B) Sings",
-        32: "C) Brave",
-        33: "A) They",
-        34: "C) Softly",
-        35: "B) Boy",
-        36: "A) Beautiful",
-        37: "B) Fly",
-        38: "A) We",
-        39: "C) Correctly"
-    }
+    return questions
+
+
+# ---------------------------
+# EXTRACT ANSWERS
+# ---------------------------
+def extract_answers(text):
+
+    answers = {}
+
+    matches = re.findall(
+        r'(\d+)\s*[\.\:\-\)]\s*([A-D])',
+        text,
+        re.I
+    )
+
+    for qno, ans in matches:
+        answers[int(qno)] = ans.upper()
+
+    return answers
+
+
+# ---------------------------
+# UI
+# ---------------------------
+st.title("📘 MockMaster")
+st.subheader("Upload Question PDF and Answer PDF")
+
+question_pdf = st.file_uploader(
+    "Upload Questions PDF",
+    type=["pdf"]
+)
+
+answer_pdf = st.file_uploader(
+    "Upload Answer PDF",
+    type=["pdf"]
+)
+
+if question_pdf and answer_pdf:
+
+    question_text = read_pdf(question_pdf)
+    answer_text = read_pdf(answer_pdf)
+
+    questions = extract_questions(question_text)
+    st.write("Questions Found:", len(questions))
+    answer_key = extract_answers(answer_text)
+
+    st.success(f"{len(questions)} Questions Loaded")
+    st.success(f"{len(answer_key)} Answers Loaded")
+
+    if len(questions) == 0:
+        st.error("No questions detected from PDF.")
+        st.text_area(
+            "Extracted Text",
+            question_text[:10000],
+            height=400
+        )
+        st.stop()
 
     user_answers = {}
 
-    # Show Questions
-    for i, q in enumerate(questions):
+    for i, q in enumerate(questions, start=1):
 
-        st.markdown(f"### {q['question']}")
+        st.markdown(f"## Q{i}")
+
+        st.write(q["question"])
 
         user_answers[i] = st.radio(
             "Choose Answer",
             q["options"],
-            key=f"q{i}"
+            key=f"q_{i}"
         )
 
         st.divider()
 
-    # Submit Button
     if st.button("Submit Test"):
 
         score = 0
-        wrong_questions = []
 
-        for i, user_answer in user_answers.items():
+        st.header("Results")
 
-            if i in correct_answers:
+        for i in range(1, len(questions) + 1):
 
-                if user_answer == correct_answers[i]:
-                    score += 1
+            selected = user_answers.get(i)
 
-                else:
-                    wrong_questions.append({
-                        "question": questions[i]["question"],
-                        "your_answer": user_answer,
-                        "correct_answer": correct_answers[i]
-                    })
+            if not selected:
+                continue
 
-        st.success(f"Your Score: {score}/{len(questions)}")
+            user_letter = selected[0].upper()
 
-        st.write(f"✅ Correct Answers: {score}")
-        st.write(f"❌ Wrong Answers: {len(wrong_questions)}")
+            correct_answer = answer_key.get(i)
 
-        if wrong_questions:
+            if user_letter == correct_answer:
 
-            st.subheader("📋 Review Wrong Answers")
+                score += 1
 
-            for item in wrong_questions:
-
-                st.error(item["question"])
-
-                st.write(
-                    f"**Your Answer:** {item['your_answer']}"
+                st.success(
+                    f"Q{i} ✓ Correct"
                 )
 
-                st.write(
-                    f"**Correct Answer:** {item['correct_answer']}"
+            else:
+
+                st.error(
+                    f"Q{i} ✗ Incorrect"
                 )
 
-                st.divider()
+            st.write(
+                f"Your Answer: {user_letter}"
+            )
+
+            st.write(
+                f"Correct Answer: {correct_answer}"
+            )
+
+            st.write("---")
+
+        st.success(
+            f"Final Score: {score}/{len(questions)}"
+        )
